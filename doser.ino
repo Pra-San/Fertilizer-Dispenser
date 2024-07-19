@@ -22,6 +22,7 @@ int duration;         // Duration in milliseconds
 long interval;        // Repeating interval in seconds
 
 double calibrationFactor;
+double scheduledAmount;
 /* ##################################################################################################################################################################################*/
 // MOTOR CONTROLS
 
@@ -32,7 +33,6 @@ const int pwmResolution = 8;  // 8-bit resolution (0-255)
 
 int dutyCycle = 100;  // Duty cycle in percent
 
-unsigned long lastRunTime = 0;
 bool isOff = true;
 
 
@@ -76,8 +76,7 @@ void processCommand(String command) {
       long value = atol(command.substring(separatorIndex + 1).c_str());
       interval = value;
       preferences.putLong("interval", value);
-
-          Serial.println("Updated " + key + " to " + String(value));
+      Serial.println("Updated " + key + " to " + String(value));
 
     } else if (key == "clearsettings")
       preferences.clear();
@@ -90,16 +89,21 @@ void processCommand(String command) {
       startMotor();
       delay(5000);
       stopMotor();
-    }
-    else if( key == "setfactor"){
+    } else if( key == "amount"){
+        double value = command.substring(separatorIndex + 1).toDouble();
+        preferences.putDouble("scheduledamount", value);
+        scheduledAmount = value;
+        Serial.println("Updated " + key + " to " + String(value));
+    } else if( key == "setfactor"){
       double value = command.substring(separatorIndex + 1).toDouble();
       preferences.putDouble("factor",5/value);
       calibrationFactor = 5/value;
-      Serial.println("Updated " + key + " to " + String(value));
+      Serial.println("Updated " + key + " to " + String(calibrationFactor));
     }
     else if(key == "dispense") {
       double value = command.substring(separatorIndex + 1).toDouble();
       Serial.println("start dispense " + key + " to " + String(value));
+      if( value <=0){ return;}
       startMotor();
       delay(value*1000*calibrationFactor);
       stopMotor();
@@ -122,6 +126,9 @@ void processCommand(String command) {
       targetMinute = value;
       preferences.putInt("targetMinute", value);
       Serial.println("Updated " + key + " to " + String(value));
+    } else if( key == "removeschedule"){
+      targetHour = -1; targetMinute = -1; interval = -1;scheduledAmount = 0;
+      Serial.println("Removed Schedule");
     }
   }
 }
@@ -151,7 +158,7 @@ void currentTimeValid() {
   }
 }
 
-int getTime(char* msg) {
+unsigned int getTime(char* msg) {
 RtcDateTime now = Rtc.GetDateTime();
 printDateTime(now);
 if(msg == "min") return now.Minute();
@@ -171,7 +178,8 @@ void printDateTime(const RtcDateTime& dt) {
              dt.Minute(),
              dt.Second());
   // Serial.println(datestring);
-  SerialBT.print(datestring);
+  delay(5000);
+  // SerialBT.print(datestring);
 
 }
 
@@ -239,8 +247,10 @@ void setup() {
   targetMinute = preferences.getShort("TargetHour",-1);
 
   calibrationFactor=preferences.getDouble("factor",1);
-}
+  scheduledAmount = preferences.putDouble("scheduledamount",0);
 
+}
+int i=0;
 void loop() {
   if (SerialBT.available()) {
     String command = SerialBT.readStringUntil('\n');
@@ -248,11 +258,16 @@ void loop() {
   }
 
   unsigned long currentTime = millis();
-  int temp = getTime("hour");
-  if (targetHour < temp && targetHour !=-1) {
-    // runMotor();
-    Serial.println("Works");
-    // delay(5000);
+  int currentHour = getTime("hour");
+  int currentMin = getTime("min");
+  if ( targetHour !=-1 && isOff && targetHour == currentHour && targetMinute == currentMin ) {
+    if(interval == i){
+      Serial.println("Works");
+      processCommand("dispense:"+String(scheduledAmount));
+      i=0;
+    } else {
+      i++;
+    }
   }
 }
 
