@@ -14,12 +14,11 @@
 Preferences preferences;
 BluetoothSerial SerialBT;
 
+int targetHour;      // Target hour to turn on the motor
+int targetMinute;    // Target minute to turn on the motor
 
-short targetHour ;  // Target hour to turn on the motor
-short targetMinute ;  // Target minute to turn on the motor
-
-int duration;         // Duration in milliseconds
-long interval;        // Repeating interval in seconds
+int duration;        // Duration in milliseconds
+long interval;       // Repeating interval in seconds
 
 double calibrationFactor;
 double scheduledAmount;
@@ -34,12 +33,12 @@ const int pwmResolution = 8;  // 8-bit resolution (0-255)
 int dutyCycle = 100;  // Duty cycle in percent
 
 bool isOff = true;
-
+bool motorStarted = false; // Flag to track if the motor has already started in the current minute
 
 void runMotor() {
   int pwmValue = map(dutyCycle, 0, 100, 0, 255);
   ledcWrite(pwmChannel, pwmValue);
-  delay(duration*calibrationFactor);
+  delay(duration * calibrationFactor);
   ledcWrite(pwmChannel, 0);
 }
 
@@ -47,6 +46,7 @@ void startMotor() {
   int pwmValue = map(dutyCycle, 0, 100, 0, 255);
   ledcWrite(pwmChannel, pwmValue);
   isOff = false;
+  motorStarted = true; // Set the flag when the motor starts
 }
 
 void stopMotor() {
@@ -65,7 +65,7 @@ void processCommand(String command) {
     String key = command.substring(0, separatorIndex);
     Serial.println(key);
 
-    //Settings
+    // Settings
     if (key == "duration") {
       int value = command.substring(separatorIndex + 1).toInt();
       duration = value;
@@ -85,49 +85,51 @@ void processCommand(String command) {
       startMotor();
     else if (key == "stop")
       stopMotor();
-    else if (key == "calibrate"){
+    else if (key == "calibrate") {
       startMotor();
       delay(5000);
       stopMotor();
-    } else if( key == "amount"){
-        double value = command.substring(separatorIndex + 1).toDouble();
-        preferences.putDouble("scheduledamount", value);
-        scheduledAmount = value;
-        Serial.println("Updated " + key + " to " + String(value));
-    } else if( key == "setfactor"){
+    } else if (key == "amount") {
       double value = command.substring(separatorIndex + 1).toDouble();
-      preferences.putDouble("factor",5/value);
-      calibrationFactor = 5/value;
+      preferences.putDouble("scheduledamount", value);
+      scheduledAmount = value;
+      Serial.println("Updated " + key + " to " + String(value));
+    } else if (key == "setfactor") {
+      double value = command.substring(separatorIndex + 1).toDouble();
+      preferences.putDouble("factor", 5 / value);
+      calibrationFactor = 5 / value;
       Serial.println("Updated " + key + " to " + String(calibrationFactor));
-    }
-    else if(key == "dispense") {
+    } else if (key == "dispense") {
       double value = command.substring(separatorIndex + 1).toDouble();
       Serial.println("start dispense " + key + " to " + String(value));
-      if( value <=0){ return;}
+      if (value <= 0) {
+        return;
+      }
       startMotor();
-      delay(value*1000*calibrationFactor);
+      delay(value * 1000 * calibrationFactor);
       stopMotor();
       Serial.println("stop dispense " + key + " to " + String(value));
     }
 
     // Timer Functions
     else if (key == "showtime")
-      int temp=getTime("");
+      int temp = getTime("");
     else if (key == "sethour") {
-      int intValue = command.substring(separatorIndex + 1).toInt();
-      short value = static_cast<short>(intValue);
+      int value = command.substring(separatorIndex + 1).toInt();
       targetHour = value;
       preferences.putInt("targetHour", value);
       Serial.println("Updated " + key + " to " + String(value));
-      
+
     } else if (key == "setminute") {
-      int intValue = command.substring(separatorIndex + 1).toInt();
-      short value = static_cast<short>(intValue);
+      int value = command.substring(separatorIndex + 1).toInt();
       targetMinute = value;
       preferences.putInt("targetMinute", value);
       Serial.println("Updated " + key + " to " + String(value));
-    } else if( key == "removeschedule"){
-      targetHour = -1; targetMinute = -1; interval = -1;scheduledAmount = 0;
+    } else if (key == "removeschedule") {
+      targetHour = -1;
+      targetMinute = -1;
+      interval = -1;
+      scheduledAmount = 0;
       Serial.println("Removed Schedule");
     }
   }
@@ -159,11 +161,14 @@ void currentTimeValid() {
 }
 
 unsigned int getTime(char* msg) {
-RtcDateTime now = Rtc.GetDateTime();
-printDateTime(now);
-if(msg == "min") return now.Minute();
-else if (msg == "hour") return now.Hour();
-else return now.Day();
+  RtcDateTime now = Rtc.GetDateTime();
+  printDateTime(now);
+  if (msg == "min")
+    return now.Minute();
+  else if (msg == "hour")
+    return now.Hour();
+  else
+    return now.Day();
 }
 
 void printDateTime(const RtcDateTime& dt) {
@@ -179,10 +184,9 @@ void printDateTime(const RtcDateTime& dt) {
              dt.Second());
   // Serial.println(datestring);
   // SerialBT.print(datestring);
-
 }
 
-void clockSetup(){
+void clockSetup() {
   Serial.print("compiled: ");
   Serial.print(__DATE__);
   Serial.println(__TIME__);
@@ -227,7 +231,6 @@ void clockSetup(){
 /* ##################################################################################################################################################################################*/
 // SETUP AND LOOP
 
-
 void setup() {
   Serial.begin(115200);
   SerialBT.begin("ESP32_Motor_Control");  // Bluetooth device name
@@ -242,28 +245,36 @@ void setup() {
   duration = preferences.getInt("duration", 5000);
   interval = preferences.getLong("interval", 86400);
 
-  targetHour = preferences.getShort("TargetHour",-1);
-  targetMinute = preferences.getShort("TargetHour",-1);
+  targetHour = preferences.getInt("TargetHour", -1);
+  targetMinute = preferences.getInt("TargetMinute", -1);
 
-  calibrationFactor=preferences.getDouble("factor",1);
-  scheduledAmount = preferences.putDouble("scheduledamount",0);
-
+  calibrationFactor = preferences.getDouble("factor", 1);
+  scheduledAmount = preferences.getDouble("scheduledamount", 0);
 }
-int i=0;
+
+int i = 0;
+int lastMinute = -1;
+
 void loop() {
   if (SerialBT.available()) {
     String command = SerialBT.readStringUntil('\n');
     processCommand(command);
   }
 
-  unsigned long currentTime = millis();
   int currentHour = getTime("hour");
   int currentMin = getTime("min");
-  if ( targetHour !=-1 && isOff && targetHour == currentHour && targetMinute == currentMin ) {
-    if(interval == i){
+
+  if (currentMin != lastMinute) {
+    motorStarted = false; // Reset the flag when the minute changes
+    lastMinute = currentMin;
+  }
+
+  if (targetHour != -1 && isOff && targetHour == currentHour && targetMinute == currentMin && !motorStarted) {
+    if (interval == i) {
       Serial.println("Works");
-      processCommand("dispense:"+String(scheduledAmount));
-      i=0;
+      processCommand("dispense:" + String(scheduledAmount));
+      i = 0;
+      motorStarted = true;
     } else {
       i++;
     }
