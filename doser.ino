@@ -178,7 +178,6 @@ void printDateTime(const RtcDateTime& dt) {
              dt.Minute(),
              dt.Second());
   // Serial.println(datestring);
-  delay(5000);
   // SerialBT.print(datestring);
 
 }
